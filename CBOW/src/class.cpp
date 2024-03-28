@@ -1,5 +1,5 @@
 // class.cpp
-#include "lib.hpp"
+#include "cbow.hpp"
 
 class CustomDataset : public torch::data::Dataset<CustomDataset> {
 private:
@@ -35,7 +35,7 @@ CBOW::CBOW(int64_t vocab_size, short window_size, int32_t embedding_dim, float l
     this->to(device);
 }
 
-torch::Tensor CBOW::forward(torch::Tensor x) {
+torch::Tensor CBOW::forward(torch::Tensor x){
     x = this->embeddings(x);
     x = torch::sum(x, /*axis=*/1);
     x = this->linear(x);
@@ -43,11 +43,11 @@ torch::Tensor CBOW::forward(torch::Tensor x) {
     return x;
 }
 
-torch::Tensor CBOW::operator()(torch::Tensor input) {
-    return forward(input);
+torch::Tensor CBOW::operator()(torch::Tensor input){
+    return this->embeddings(input);
 }
 
-void CBOW::fit(torch::Tensor data, short batch_size, int64_t num_epochs, size_t num_workers){
+void CBOW::fit(torch::Tensor data, short batch_size, int64_t num_epochs, size_t num_workers) {
     auto dataset = CustomDataset(data, window_size, this->vocab_size).map(torch::data::transforms::Stack<>());
     auto data_loader = torch::data::make_data_loader(
         dataset,

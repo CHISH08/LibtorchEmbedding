@@ -1,9 +1,24 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
+project(EMBEDDING)
 
-project(Embeddings)
+list(APPEND CMAKE_PREFIX_PATH "~/code/Embedding/libtorch")
 
-add_subdirectory(CBOW)
+find_package(Torch REQUIRED)
 
-add_executable(main main.cpp)
+set(CMAKE_BUILD_TYPE Release)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 
-target_link_libraries(main CBOW)
+include_directories(
+    ${CMAKE_CURRENT_SOURCE_DIR}/CBOW/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/Embedding/include
+)
+
+file(GLOB SOURCES
+    "CBOW/src/*.cpp"
+    "Embedding/src/*.cpp"
+    "main.cpp"
+)
+
+add_executable(embedding ${SOURCES})
+target_link_libraries(embedding "${TORCH_LIBRARIES}")
+set_property(TARGET embedding PROPERTY CXX_STANDARD 17)
