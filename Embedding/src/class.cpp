@@ -17,7 +17,7 @@ template <typename ModelType>
 Embedding<ModelType>::Embedding(std::u32string &text, short window_size, int32_t embedding_dim, float lr, std::string device) {
     std::vector<std::u32string> tokens = this->tokenize(text);
     this->make_vocab(tokens);
-    this->model = std::make_unique<ModelType>(this->vocab.size(), window_size, embedding_dim, lr, device);
+    this->model = std::make_unique<ModelType>(this->vocab_size, window_size, embedding_dim, lr, device);
 }
 
 template <typename ModelType>
@@ -31,13 +31,13 @@ torch::Tensor Embedding<ModelType>::operator()(torch::Tensor input) {
 }
 
 template <typename ModelType>
-torch::Tensor Embedding<ModelType>::operator[](std::u32string word) {
+torch::Tensor Embedding<ModelType>::operator[](std::u32string &word) {
     torch::Tensor word_idx = torch::tensor(this->vocab[word]);
     return this->model->operator()(word_idx);
 }
 
 template <typename ModelType>
-void Embedding<ModelType>::fit(torch::Tensor data, short batch_size, int64_t num_epochs, size_t num_workers) {
+void Embedding<ModelType>::fit(torch::Tensor &data, short batch_size, int64_t num_epochs, size_t num_workers) {
     this->model->fit(data, batch_size, num_epochs, num_workers);
 }
 
@@ -63,9 +63,11 @@ void Embedding<ModelType>::make_vocab(std::vector<std::u32string> &tokens) {
     for (auto str: tokens) {
         if (this->vocab.find(str) == this->vocab.end()) {
             this->vocab[str] = i;
+            this->vocab_word.push_back(str);
             ++i;
         }
     }
+    this->vocab_size = i;
 }
 
 template <typename ModelType>
@@ -81,10 +83,37 @@ torch::Tensor Embedding<ModelType>::text_to_idx(std::u32string &text) {
 }
 
 template <typename ModelType>
-std::vector<std::pair<std::u32string, torch::Tensor>> Embedding<ModelType>::k_nearest(std::u32string &word, int k) {
+std::vector<std::pair<std::u32string, torch::Tensor>> Embedding<ModelType>::k_nearest(std::u32string &word, int k, bool cosin, bool out_emb) {
     std::vector<std::pair<std::u32string, torch::Tensor>> k_nearest_word;
+    torch::Tensor word_idx = torch::tensor(this->vocab[word], torch::kInt64);
+    torch::Tensor all_idx = torch::arange(this->vocab_size);
+    torch::Tensor all_word_embed = this->model->operator()(all_idx).clone();
+    torch::Tensor word_embed = all_word_embed[word_idx].clone();
+    if (cosin) { 
+        all_word_embed = torch::nn::functional::normalize(all_word_embed, torch::nn::functional::NormalizeFuncOptions().dim(1));
+        word_embed = torch::nn::functional::normalize(word_embed, torch::nn::functional::NormalizeFuncOptions().dim(0));
+        all_word_embed = torch::sum(all_word_embed * word_embed, /*dim=*/1);
+    } else {
+        all_word_embed = all_word_embed - word_embed.expand_as(all_word_embed);
+        all_word_embed = torch::sqrt(torch::sum(all_word_embed * all_word_embed, /*dim=*/1));
+    }
+    torch::Tensor values, indices;
+    std::tie(values, indices) = torch::topk(all_word_embed.view(-1), k, /*dim=*/0, /*largest=*/!cosin, /*sorted=*/true);
+    for (int64_t i = k-1; i >= 0; --i) {
+        auto idx = indices[i].item<int64_t>();
+        if (out_emb) {
+            k_nearest_word.push_back({this->vocab_word[idx], this->model->operator()(torch::tensor(idx))});
+        } else {
+            k_nearest_word.push_back({this->vocab_word[idx], all_word_embed[idx]});
+        }
+    }
     return k_nearest_word;
 }
 
+template <typename ModelType>
+void Embedding<ModelType>::to(std::string device) {
+    this->model->to(device);
+    this->model->device = device;
+}
 
 template class Embedding<CBOW>;

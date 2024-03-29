@@ -44,10 +44,11 @@ torch::Tensor CBOW::forward(torch::Tensor x){
 }
 
 torch::Tensor CBOW::operator()(torch::Tensor input){
-    return this->embeddings(input);
+    input = input.to(this->device);
+    return this->embeddings(input).detach().cpu();
 }
 
-void CBOW::fit(torch::Tensor data, short batch_size, int64_t num_epochs, size_t num_workers) {
+void CBOW::fit(torch::Tensor &data, short batch_size, int64_t num_epochs, size_t num_workers) {
     auto dataset = CustomDataset(data, window_size, this->vocab_size).map(torch::data::transforms::Stack<>());
     auto data_loader = torch::data::make_data_loader(
         dataset,
