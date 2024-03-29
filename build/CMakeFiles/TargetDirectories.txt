@@ -1,0 +1,3 @@
+/home/denis/code/Embedding/build/CMakeFiles/embedding.dir
+/home/denis/code/Embedding/build/CMakeFiles/edit_cache.dir
+/home/denis/code/Embedding/build/CMakeFiles/rebuild_cache.dir

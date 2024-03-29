@@ -14,8 +14,10 @@ char32_t tolower_utf32(char32_t ch) {
 }
 
 template <typename ModelType>
-Embedding<ModelType>::Embedding(int64_t vocab_size, short window_size, int32_t embedding_dim, float lr, std::string device) {
-    this->model = std::make_unique<ModelType>(vocab_size, window_size, embedding_dim, lr, device);
+Embedding<ModelType>::Embedding(std::u32string &text, short window_size, int32_t embedding_dim, float lr, std::string device) {
+    std::vector<std::u32string> tokens = this->tokenize(text);
+    this->make_vocab(tokens);
+    this->model = std::make_unique<ModelType>(this->vocab.size(), window_size, embedding_dim, lr, device);
 }
 
 template <typename ModelType>
@@ -69,7 +71,6 @@ void Embedding<ModelType>::make_vocab(std::vector<std::u32string> &tokens) {
 template <typename ModelType>
 torch::Tensor Embedding<ModelType>::text_to_idx(std::u32string &text) {
     std::vector<std::u32string> tokens = this->tokenize(text);
-    this->make_vocab(tokens);
     torch::Tensor token = torch::zeros({static_cast<long>(tokens.size())}, torch::dtype(torch::kInt32));
     int64_t i = 0;
     for (auto str: tokens) {
@@ -78,5 +79,12 @@ torch::Tensor Embedding<ModelType>::text_to_idx(std::u32string &text) {
     }
     return token;
 }
+
+template <typename ModelType>
+std::vector<std::pair<std::u32string, torch::Tensor>> Embedding<ModelType>::k_nearest(std::u32string &word, int k) {
+    std::vector<std::pair<std::u32string, torch::Tensor>> k_nearest_word;
+    return k_nearest_word;
+}
+
 
 template class Embedding<CBOW>;
