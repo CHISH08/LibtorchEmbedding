@@ -18,6 +18,7 @@ Embedding<ModelType>::Embedding(std::u32string &text, short window_size, int32_t
     std::vector<std::u32string> tokens = this->tokenize(text);
     this->make_vocab(tokens);
     this->model = std::make_unique<ModelType>(this->vocab_size, window_size, embedding_dim, lr, device);
+    this->embedding_dim = embedding_dim;
 }
 
 template <typename ModelType>
@@ -37,8 +38,41 @@ torch::Tensor Embedding<ModelType>::operator[](std::u32string &word) {
 }
 
 template <typename ModelType>
-void Embedding<ModelType>::fit(torch::Tensor &data, short batch_size, int64_t num_epochs, size_t num_workers) {
-    this->model->fit(data, batch_size, num_epochs, num_workers);
+void Embedding<ModelType>::fit(torch::Tensor &data, short batch_size, int64_t num_epochs, size_t num_workers, std::string file_path) {
+    std::pair<std::vector<double>, std::vector<double>> loss_met = this->model->fit(data, batch_size, num_epochs, num_workers);
+    metric_to_file(loss_met, this->model->window_size, this->embedding_dim, file_path);
+}
+
+template <typename ModelType>
+void Embedding<ModelType>::metric_to_file(std::pair<std::vector<double>, std::vector<double>> &loss_met, int64_t window_size, int64_t embedding_dim, std::string file_path) {
+    std::filesystem::path dir(file_path);
+    if (!std::filesystem::exists(dir)) {
+        std::filesystem::create_directories(dir);
+    }
+    std::vector<double> loss = loss_met.first;
+    std::vector<double> metric = loss_met.second;
+
+    std::filesystem::path filePath = dir / "data.csv";
+
+    if (!std::filesystem::exists(filePath)) {
+        std::ofstream file(filePath);
+        if (file.is_open()) {
+            file << "epochs;embedding_dim;window_size;loss;metric\n";
+            file.close();
+        } else {
+            std::cerr << "Не удалось создать файл: " << filePath << std::endl;
+        }
+    }
+
+    std::ofstream file(filePath, std::ios::app);
+    if (file.is_open()) {
+        for (int i = 1; i <= loss.size(); ++i) {
+            file << std::to_string(i) << ';' << std::to_string(embedding_dim) << ';' << std::to_string(window_size) << ';' << std::to_string(loss[i-1]) << ';' << std::to_string(metric[i-1]) << std::endl;
+        }
+        file.close();
+    } else {
+        std::cerr << "Не удалось открыть файл: " << filePath << std::endl;
+    }
 }
 
 template <typename ModelType>
@@ -93,13 +127,15 @@ std::vector<std::pair<std::u32string, torch::Tensor>> Embedding<ModelType>::k_ne
         all_word_embed = torch::nn::functional::normalize(all_word_embed, torch::nn::functional::NormalizeFuncOptions().dim(1));
         word_embed = torch::nn::functional::normalize(word_embed, torch::nn::functional::NormalizeFuncOptions().dim(0));
         all_word_embed = torch::sum(all_word_embed * word_embed, /*dim=*/1);
+        all_word_embed[word_idx] = -1.;
     } else {
         all_word_embed = all_word_embed - word_embed.expand_as(all_word_embed);
         all_word_embed = torch::sqrt(torch::sum(all_word_embed * all_word_embed, /*dim=*/1));
+        all_word_embed[word_idx] = all_word_embed.max() + 1e-6;
     }
     torch::Tensor values, indices;
-    std::tie(values, indices) = torch::topk(all_word_embed.view(-1), k, /*dim=*/0, /*largest=*/!cosin, /*sorted=*/true);
-    for (int64_t i = k-1; i >= 0; --i) {
+    std::tie(values, indices) = torch::topk(all_word_embed.view(-1), k, /*dim=*/0, /*largest=*/cosin, /*sorted=*/true);
+    for (int64_t i = 0; i < k; ++i) {
         auto idx = indices[i].item<int64_t>();
         if (out_emb) {
             k_nearest_word.push_back({this->vocab_word[idx], this->model->operator()(torch::tensor(idx))});

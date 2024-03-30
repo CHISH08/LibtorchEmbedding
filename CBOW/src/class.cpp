@@ -15,9 +15,7 @@ public:
         torch::Tensor left_context = tokens.slice(0, index, index + this->window_size);
         torch::Tensor right_context = tokens.slice(0, index + this->window_size + 1, index + 2 * this->window_size + 1);
         torch::Tensor context = torch::cat({left_context, right_context}, 0);
-        torch::Tensor center = torch::zeros({vocab_size});
-        center[tokens[index + this->window_size]] = 1;
-        return {context, center};
+        return {context, tokens[index + this->window_size]};
     };
 
     torch::optional<size_t> size() const override {
@@ -39,7 +37,7 @@ torch::Tensor CBOW::forward(torch::Tensor x){
     x = this->embeddings(x);
     x = torch::sum(x, /*axis=*/1);
     x = this->linear(x);
-    x = torch::softmax(x, /*dim=*/1);
+    x = torch::log_softmax(x, /*dim=*/1);
     return x;
 }
 
@@ -48,7 +46,7 @@ torch::Tensor CBOW::operator()(torch::Tensor input){
     return this->embeddings(input).detach().cpu();
 }
 
-void CBOW::fit(torch::Tensor &data, short batch_size, int64_t num_epochs, size_t num_workers) {
+std::pair<std::vector<double>, std::vector<double>> CBOW::fit(torch::Tensor &data, short batch_size, int64_t num_epochs, size_t num_workers) {
     auto dataset = CustomDataset(data, window_size, this->vocab_size).map(torch::data::transforms::Stack<>());
     auto data_loader = torch::data::make_data_loader(
         dataset,
@@ -56,11 +54,14 @@ void CBOW::fit(torch::Tensor &data, short batch_size, int64_t num_epochs, size_t
     );
     torch::nn::CrossEntropyLoss criterion;
     this->train();
+    std::vector<double> losses_vector(num_epochs);
+    std::vector<double> metric_vector(num_epochs);
     for (int64_t epoch = 1; epoch <= num_epochs; ++epoch) {
         double sum_loss = 0;
+        double metric = 0;
         for (auto& batch : *data_loader) {
             auto context = batch.data.to(this->device);
-            auto center = batch.target.to(this->device);
+            auto center = batch.target.to(torch::kLong).to(this->device);
             this->optim->zero_grad();
 
             auto outputs = this->forward(context);
@@ -70,8 +71,13 @@ void CBOW::fit(torch::Tensor &data, short batch_size, int64_t num_epochs, size_t
             this->optim->step();
 
             sum_loss += loss.item<double>();
+            metric += torch::sum(torch::argmax(outputs, 1) == center).item<double>();
         }
-        std::cout << "Эпоха " << epoch << ", Loss: " << sum_loss << std::endl;
+        metric = metric * 100 / static_cast<double>(dataset.size().value());
+        losses_vector[epoch-1] = sum_loss;
+        metric_vector[epoch-1] = metric;
+        // std::cout << "Эпоха " << epoch << ", Loss: " << sum_loss << ", Accuracy: " << metric << std::endl;
     }
     std::cout << "Обучение завершено." << std::endl;
+    return {losses_vector, metric_vector};
 }
